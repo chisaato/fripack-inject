@@ -270,10 +270,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Set up environment
-        uses: ./.github/actions/setup-windows-env
+      - name: Configure git
+        run: |
+          git config --global user.name "Frida Developers"
+          git config --global user.email "oleavr@frida.re"
+        shell: pwsh
+      - name: Check out releng
+        run: |
+          git submodule update --init --depth 1 releng
+          cd releng
+          git submodule update --init --depth 1
+        shell: pwsh
+      - name: Add convenience environment variables
+        run: |
+          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
+          echo "FRIDA_VERSION=$(python releng/frida_version.py)" >> $Env:GITHUB_ENV
+        shell: pwsh
+      - name: Install Python
+        uses: actions/setup-python@v5
         with:
-          architecture: ${{ matrix.arch == 'x86_64' && 'x64' || matrix.arch }}
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+      - name: Install setuptools
+        run: pip install setuptools
+        shell: pwsh
       - name: Install MinGW toolchain for cgo support
         id: msys2
         uses: msys2/setup-msys2@v2
