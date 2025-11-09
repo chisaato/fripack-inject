@@ -52,6 +52,8 @@ void println(fmt::format_string<Args...> format, Args &&...args) {
 }
 } // namespace logger
 
+
+
 class GumJSHookManager {
 private:
   std::unique_ptr<std::thread> hook_thread_;
@@ -200,7 +202,7 @@ void _main() {
 
   gumjs_hook_manager = std::make_unique<GumJSHookManager>();
 
-  gumjs_hook_manager->start_js_thread("console.log('Hello from GumJS!');");
+  gumjs_hook_manager->start_js_thread("console.log('Hello from GumJS!', Interceptor, Java);");
 }
 
 #ifdef _WIN32
