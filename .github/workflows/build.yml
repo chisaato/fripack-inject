@@ -224,6 +224,7 @@ jobs:
       shell: bash
       run: |
         cd build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit
+        cp ../../../../gum/gumenumtypes.h ./gumenumtypes.h
         zip -9 -r ./gumjs-${{ matrix.arch }}.zip . && cd -
 
     - name: Upload gumjs for ${{ matrix.arch }}
@@ -307,7 +308,8 @@ jobs:
             }
       - name: Package and compress gumjs-devkit folder for ${{ matrix.arch }}
         run: |
-          Compress-Archive -Path .\frida\subprojects\frida-gum\gum\devkit\* -DestinationPath .\frida\subprojects\frida-gum\gum\devkit\gumjs-devkit-${{ matrix.arch }}.zip -CompressionLevel Optimal
+          cp .\frida\subprojects\frida-gum\gum\gumenumtypes.h .\frida\subprojects\frida-gum\bindings\gumjs\devkit\gumenumtypes.h
+          Compress-Archive -Path .\frida\subprojects\frida-gum\bindings\gumjs\devkit\* -DestinationPath .\subprojects\frida-gum\bindings\gumjs\devkit\gumjs-devkit-${{ matrix.arch }}.zip -CompressionLevel Optimal
           
       - name: Create Release Asset
         uses: actions/upload-release-asset@v1.0.2
@@ -315,6 +317,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-          asset_path: './frida/subprojects/frida-gum/gum/devkit/gumjs-devkit-${{ matrix.arch }}.zip'
+          asset_path: './frida/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-devkit-${{ matrix.arch }}.zip'
           asset_name: 'gumjs-devkit-${{ steps.checkReleaseVersion.outputs.version }}-windows-${{ matrix.arch }}.zip'
           asset_content_type: application/zip
