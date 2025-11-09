@@ -204,10 +204,10 @@ jobs:
     - name: Package and compress gumjs folders for Android
       shell: bash
       run: |
-        cd build-android-arm/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ../gumjs-android-arm.zip . && cd -
-        cd build-android-arm64/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ../gumjs-android-arm64.zip . && cd -
-        cd build-android-x86/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ../gumjs-android-x86.zip . && cd -
-        cd build-android-x86_64/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ../gumjs-android-x86_64.zip . && cd -
+        cd build-android-arm/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ./gumjs-android-arm.zip . && cd -
+        cd build-android-arm64/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ./gumjs-android-arm64.zip . && cd -
+        cd build-android-x86/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ./gumjs-android-x86.zip . && cd -
+        cd build-android-x86_64/subprojects/frida-gum/bindings/gumjs/devkit && zip -9 -r ./gumjs-android-x86_64.zip . && cd -
 
     - name: Upload android arm gumjs for Florida
       uses: actions/upload-release-asset@v1.0.2
@@ -215,8 +215,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-        asset_path: '${{ github.workspace }}/build-android-arm/build/devkits/gumjs-android-arm.zip'
-        asset_name: 'florida-gumjs-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm.zip'
+        asset_path: '${{ github.workspace }}/build-android-arm/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-android-arm.zip'
+        asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm.zip'
         asset_content_type: application/zip
 
     - name: Upload android arm64 gumjs for Florida
@@ -225,8 +225,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-        asset_path: '${{ github.workspace }}/build-android-arm64/build/devkits/gumjs-android-arm64.zip'
-        asset_name: 'florida-gumjs-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm64.zip'
+        asset_path: '${{ github.workspace }}/build-android-arm64/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-android-arm64.zip'
+        asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm64.zip'
         asset_content_type: application/zip
 
     - name: Upload android x86 gumjs for Florida
@@ -235,8 +235,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-        asset_path: '${{ github.workspace }}/build-android-x86/build/devkits/gumjs-android-x86.zip'
-        asset_name: 'florida-gumjs-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86.zip'
+        asset_path: '${{ github.workspace }}/build-android-x86/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-android-x86.zip'
+        asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86.zip'
         asset_content_type: application/zip
 
     - name: Upload android x86_64 gumjs for Florida
@@ -245,6 +245,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-        asset_path: '${{ github.workspace }}/build-android-x86_64/build/devkits/gumjs-android-x86_64.zip'
-        asset_name: 'florida-gumjs-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86_64.zip'
+        asset_path: '${{ github.workspace }}/build-android-x86_64/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-android-x86_64.zip'
+        asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86_64.zip'
         asset_content_type: application/zip
