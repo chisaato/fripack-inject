@@ -236,6 +236,32 @@ jobs:
         asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-${{ matrix.arch }}.zip'
         asset_content_type: application/zip
 
+    - uses: xmake-io/github-action-setup-xmake@v1
+      with:
+        xmake-version: branch@master
+        actions-cache-folder: '.xmake-cache'
+        actions-cache-key: 'ci'
+        package-cache: true
+        package-cache-key: linux-${{ matrix.arch }}-${{ matrix.platform }}
+
+    - name: Build xmake fripack-inject for ${{ matrix.arch }}
+      run: |
+        mkdir .\fripack-inject\frida-gumjs-devkit\
+        copy ./build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/* .\fripack-inject\frida-gumjs-devkit\
+        cd .\fripack-inject
+        xmake f -a ${{ matrix.arch }} -y
+        xmake -vD
+        cp ./build/*/*/*/*.so ./
+    - name: Upload fripack-inject for ${{ matrix.arch }}
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: ./fripack-inject/build/libfripack-inject.so
+        asset_name: 'fripack-inject-${{ steps.checkReleaseVersion.outputs.version }}-${{ matrix.arch }}.so'
+        asset_content_type: application/octet-stream
+
   build-windows:
     needs: [check_version, create_release]
     strategy:
@@ -254,7 +280,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          architecture: ${{ matrix.arch == 'x86' && 'x86' || matrix.arch == 'x86_64' && 'x64'}}
+          architecture: ${{ matrix.arch == 'x86' && 'x86' || matrix.arch == 'x86_64' && 'x64' }}
       - name: Install setuptools
         run: pip install setuptools
         shell: pwsh
@@ -318,3 +344,29 @@ jobs:
           asset_path: './frida/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-devkit-${{ matrix.arch }}.zip'
           asset_name: 'gumjs-devkit-${{ steps.checkReleaseVersion.outputs.version }}-windows-${{ matrix.arch }}.zip'
           asset_content_type: application/zip
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@master
+          actions-cache-folder: '.xmake-cache'
+          actions-cache-key: 'ci'
+          package-cache: true
+          package-cache-key: windows-${{ matrix.arch }}
+
+      - name: Build xmake fripack-inject for ${{ matrix.arch }}
+        run: |
+          mkdir .\fripack-inject\frida-gumjs-devkit\
+          copy .\frida\subprojects\frida-gum\bindings\gumjs\devkit\* .\fripack-inject\frida-gumjs-devkit\
+          cd .\fripack-inject
+          xmake f -a ${{ matrix.arch }} -y
+          xmake -vD
+      
+      - name: Upload fripack-inject for ${{ matrix.arch }}
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+          asset_path: ./fripack-inject/build/windows/${{ matrix.arch == 'x86' && 'x86' || matrix.arch == 'x86_64' && 'x64' }}/fripack-inject.dll
+          asset_name: 'fripack-inject-${{ steps.checkReleaseVersion.outputs.version }}-windows-${{ matrix.arch }}.dll'
+          asset_content_type: application/octet-stream
