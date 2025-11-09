@@ -100,7 +100,7 @@ jobs:
           name: "${{ needs.check_version.outputs.FRIDA_VERSION }}"
           prerelease: false
 
-  build:
+  build-linux-android:
     runs-on: ubuntu-22.04
     needs: [check_version, create_release]
     strategy:
@@ -235,7 +235,7 @@ jobs:
         asset_name: 'gumjs-devkit-${{ needs.check_version.outputs.FRIDA_VERSION }}-${{ matrix.arch }}.zip'
         asset_content_type: application/zip
 
-  frida-windows-intel:
+  build-windows:
     needs: [check_version, create_release]
     strategy:
       matrix:
