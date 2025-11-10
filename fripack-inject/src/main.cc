@@ -201,12 +201,10 @@ private:
   }
 };
 
-static std::unique_ptr<GumJSHookManager> gumjs_hook_manager;
-
 #ifdef _WIN32
-    #define EXPORT __declspec(dllexport)
+#define EXPORT __declspec(dllexport)
 #else
-    #define EXPORT __attribute__((visibility("default")))
+#define EXPORT __attribute__((visibility("default")))
 #endif
 
 #pragma pack(push, 1)
@@ -216,7 +214,7 @@ struct EmbeddedConfig {
   int32_t version = 1;
 
   int32_t data_size = 0;
-  int32_t data_offset = 0; // Offset from the start of file.
+  int32_t data_offset = 0; // Offset from the start of the struct.
   bool data_xz = false;    // Whether the data is compressed with xz.
 };
 #pragma pack(pop)
@@ -230,6 +228,37 @@ struct EmbeddedConfigData {
 };
 
 EXPORT EmbeddedConfig g_embedded_config{};
+
+void print_hexdump(const uint8_t *data, size_t size) {
+  constexpr size_t bytes_per_line = 16;
+  std::string res;
+  for (size_t i = 0; i < size; i += bytes_per_line) {
+    res += fmt::format("{:08x}  ", i);
+    for (size_t j = 0; j < bytes_per_line; ++j) {
+      if (i + j < size) {
+        res += fmt::format("{:02x} ", data[i + j]);
+      } else {
+        res += "   ";
+      }
+      if (j == 7) {
+        res += " ";
+      }
+    }
+    res += " |";
+    for (size_t j = 0; j < bytes_per_line; ++j) {
+      if (i + j < size) {
+        char c = data[i + j];
+        res += (c >= 32 && c <= 126) ? c : '.';
+      } else {
+        res += ' ';
+      }
+    }
+    res += "|\n";
+  }
+
+  logger::println("\n{}", res);
+}
+
 #pragma optimize("", off)
 void _main() {
   logger::println("[*] Library loaded, starting GumJS hook");
@@ -238,18 +267,15 @@ void _main() {
       g_embedded_config.magic2 != 0x1f8a4e2b ||
       g_embedded_config.version != 1) {
     logger::println("Invalid embedded config");
+    print_hexdump(reinterpret_cast<const uint8_t *>(&g_embedded_config),
+                  sizeof(g_embedded_config));
     return;
   }
 
-  auto mod = get_current_module_path();
-  std::ifstream file(mod, std::ios::binary);
-  if (!file.is_open()) {
-    logger::println("Failed to open module file: {}", mod);
-    return;
-  }
-  file.seekg(g_embedded_config.data_offset, std::ios::beg);
   std::vector<char> data(g_embedded_config.data_size);
-  file.read(data.data(), g_embedded_config.data_size);
+  char *p_embedded_config_data = reinterpret_cast<char *>(&g_embedded_config) +
+                                 g_embedded_config.data_offset;
+  std::memcpy(data.data(), p_embedded_config_data, g_embedded_config.data_size);
 
   if (g_embedded_config.data_xz) {
     lzma_stream strm = LZMA_STREAM_INIT;
@@ -305,28 +331,38 @@ void _main() {
   // logger::println("Embedded config offset: {}, size: {}, JSON: {}",
   //                 g_embedded_config.data_offset, g_embedded_config.data_size,
   //                 json_str);
-
-  if (auto res = rfl::json::read<EmbeddedConfigData>(json_str)) {
-    gumjs_hook_manager = std::make_unique<GumJSHookManager>();
-
-    auto config = res.value();
-    std::string js_content;
-    if (config.mode == EmbeddedConfigData::Mode::EmbedJs) {
-      if (config.js_content) {
-        js_content = *config.js_content;
-        gumjs_hook_manager->start_js_thread(js_content);
+  try {
+    std::thread([=]() {
+      GumJSHookManager *gumjs_hook_manager;
+      if (auto res = rfl::json::read<EmbeddedConfigData>(json_str)) {
+        gumjs_hook_manager = new GumJSHookManager();
+        auto config = res.value();
+        std::string js_content;
+        if (config.mode == EmbeddedConfigData::Mode::EmbedJs) {
+          if (config.js_content) {
+            js_content = *config.js_content;
+            gumjs_hook_manager->start_js_thread(js_content);
+          } else {
+            logger::println("No JS content or filepath provided");
+            return;
+          }
+        } else {
+          logger::println("Unsupported embedded config mode: {}",
+                          static_cast<int32_t>(config.mode));
+          return;
+        }
       } else {
-        logger::println("No JS content or filepath provided");
+        logger::println("Failed to parse embedded config data: {}",
+                        res.error().what());
+        logger::println("Embedded data hexdump:");
+        print_hexdump(reinterpret_cast<const uint8_t *>(data.data()),
+                      data.size());
         return;
       }
-    } else {
-      logger::println("Unsupported embedded config mode: {}",
-                      static_cast<int32_t>(config.mode));
-      return;
-    }
-  } else {
-    logger::println("Failed to parse embedded config data: {}",
-                    res.error().what());
+    }).detach();
+  } catch (const std::exception &e) {
+    logger::println("Exception while parsing embedded config data: {}",
+                    e.what());
     return;
   }
 }
@@ -338,10 +374,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     _main();
     break;
   case DLL_PROCESS_DETACH:
-    if (gumjs_hook_manager) {
-      gumjs_hook_manager->stop();
-      gumjs_hook_manager.reset();
-    }
     break;
   }
   return TRUE;
