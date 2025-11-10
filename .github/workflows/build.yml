@@ -244,7 +244,7 @@ jobs:
     - name: Build xmake fripack-inject for ${{ matrix.arch }}
       run: |
         mkdir -p ./fripack-inject/frida-gumjs-devkit/
-        copy ./build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/* ./fripack-inject/frida-gumjs-devkit/
+        cp ./build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/* ./fripack-inject/frida-gumjs-devkit/
         cd ./fripack-inject
         xmake f -a ${{ matrix.arch }} -y
         xmake -vD
