@@ -204,11 +204,7 @@ private:
 static std::unique_ptr<GumJSHookManager> gumjs_hook_manager;
 
 #ifdef _WIN32
-    #ifdef BUILD_DLL
-        #define EXPORT __declspec(dllexport)
-    #else
-        #define EXPORT __declspec(dllimport)
-    #endif
+    #define EXPORT __declspec(dllexport)
 #else
     #define EXPORT __attribute__((visibility("default")))
 #endif
