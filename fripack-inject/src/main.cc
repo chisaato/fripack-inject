@@ -356,7 +356,7 @@ void _main() {
                         res.error().what());
         logger::println("Embedded data hexdump:");
         print_hexdump(reinterpret_cast<const uint8_t *>(data.data()),
-                      data.size());
+                      std::min(data.size(), static_cast<size_t>(100)));
         return;
       }
     }).detach();
