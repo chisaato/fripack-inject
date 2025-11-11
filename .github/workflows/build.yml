@@ -379,6 +379,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
-          asset_path: ./fripack-inject/fripack-inject.dll
+          asset_path: ./fripack-inject.dll
           asset_name: 'fripack-inject-${{ steps.checkReleaseVersion.outputs.version }}-windows-${{ matrix.arch }}.dll'
           asset_content_type: application/octet-stream
