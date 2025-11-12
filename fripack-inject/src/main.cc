@@ -9,7 +9,6 @@
 #include <thread>
 #include <vector>
 
-#include "utils.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -262,7 +261,6 @@ void print_hexdump(const uint8_t *data, size_t size) {
 #pragma optimize("", off)
 void _main() {
   logger::println("[*] Library loaded, starting GumJS hook");
-
   if (g_embedded_config.magic1 != 0x0d000721 ||
       g_embedded_config.magic2 != 0x1f8a4e2b ||
       g_embedded_config.version != 1) {
