@@ -3,12 +3,13 @@
 #include <cstdint>
 #include <fstream>
 #include <future>
-#include <link.h>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "logger.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -18,46 +19,12 @@
 #endif
 
 #include "frida-gumjs.h"
-#include <fmt/chrono.h>
-#include <fmt/format.h>
 
-#include "rfl.hpp"
-#include "rfl/json.hpp"
+#include "hooks.h"
+#include "stacktrace.h"
+#include "config.h"
 
-#include "lzma.h"
-
-namespace logger {
-
-#ifdef __ANDROID__
-void log(const char *tag, const std::string &message) {
-  __android_log_write(ANDROID_LOG_INFO, tag, message.c_str());
-}
-#else
-void log(const char *tag, const std::string &message) {
-  auto now = std::chrono::system_clock::now();
-  auto time_t = std::chrono::system_clock::to_time_t(now);
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now.time_since_epoch()) %
-            1000;
-
-  std::string formatted = fmt::format("[{:%Y-%m-%d %H:%M:%S}.{:03d}] [{}] {}",
-                                      now, ms.count(), tag, message);
-
-  fmt::println("{}", formatted);
-
-#ifdef _WIN32
-  OutputDebugStringA(formatted.c_str());
-  OutputDebugStringA("\n");
-#endif
-}
-#endif
-
-template <typename... Args>
-void println(fmt::format_string<Args...> format, Args &&...args) {
-  std::string message = fmt::format(format, std::forward<Args>(args)...);
-  log("FriPackInject", message);
-}
-} // namespace logger
+namespace fripack {
 
 class GumJSHookManager {
 private:
@@ -77,25 +44,6 @@ public:
 
   GumJSHookManager(const GumJSHookManager &) = delete;
   GumJSHookManager &operator=(const GumJSHookManager &) = delete;
-
-  std::vector<char> read_file(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-      logger::println("File open failed: {}", filepath);
-      return {};
-    }
-
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    std::vector<char> buffer(size);
-    if (!file.read(buffer.data(), size)) {
-      logger::println("File read failed: {}", filepath);
-      return {};
-    }
-
-    return buffer;
-  }
 
   static void on_message(const gchar *message, GBytes *data,
                          gpointer user_data) {
@@ -133,7 +81,6 @@ public:
 
   std::promise<void> start_js_thread(const std::string &js_content) {
     logger::println("[*] Starting GumJS hook thread");
-
     std::promise<void> init_promise;
     std::future<void> init_future = init_promise.get_future();
     std::thread([this, js_content = std::move(js_content),
@@ -141,10 +88,15 @@ public:
       gum_init_embedded();
 
       backend_ = gum_script_backend_obtain_qjs();
+      logger::println("[*] Obtained Gum Script Backend");
+
+      fripack::hooks::init();
 
       script_ =
           gum_script_backend_create_sync(backend_, "script", js_content.data(),
                                          nullptr, cancellable_, &error_);
+      logger::println("[*] Created Gum Script");
+      // return;
       if (error_) {
         throw std::runtime_error(
             fmt::format("Failed to create script: {}", error_->message));
@@ -201,161 +153,30 @@ private:
   }
 };
 
-#ifdef _WIN32
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT __attribute__((visibility("default")))
-#endif
-
-#pragma pack(push, 1)
-struct EmbeddedConfig {
-  int32_t magic1 = 0x0d000721;
-  int32_t magic2 = 0x1f8a4e2b;
-  int32_t version = 1;
-
-  int32_t data_size = 0;
-  int32_t data_offset = 0; // Offset from the start of the struct.
-  bool data_xz = false;    // Whether the data is compressed with xz.
-};
-#pragma pack(pop)
-
-struct EmbeddedConfigData {
-  enum class Mode : int32_t {
-    EmbedJs = 1,
-  } mode;
-  std::optional<std::string> js_filepath;
-  std::optional<std::string> js_content;
-};
-
-EXPORT EmbeddedConfig g_embedded_config{};
-
-void print_hexdump(const uint8_t *data, size_t size) {
-  constexpr size_t bytes_per_line = 16;
-  std::string res;
-  for (size_t i = 0; i < size; i += bytes_per_line) {
-    res += fmt::format("{:08x}  ", i);
-    for (size_t j = 0; j < bytes_per_line; ++j) {
-      if (i + j < size) {
-        res += fmt::format("{:02x} ", data[i + j]);
-      } else {
-        res += "   ";
-      }
-      if (j == 7) {
-        res += " ";
-      }
-    }
-    res += " |";
-    for (size_t j = 0; j < bytes_per_line; ++j) {
-      if (i + j < size) {
-        char c = data[i + j];
-        res += (c >= 32 && c <= 126) ? c : '.';
-      } else {
-        res += ' ';
-      }
-    }
-    res += "|\n";
-  }
-
-  logger::println("\n{}", res);
-}
-
-#pragma optimize("", off)
-EXPORT extern "C" void _fi_main() {
+void _fi_main() {
   logger::println("[*] Library loaded, starting GumJS hook");
-  if (g_embedded_config.magic1 != 0x0d000721 ||
-      g_embedded_config.magic2 != 0x1f8a4e2b ||
-      g_embedded_config.version != 1) {
-    logger::println("Invalid embedded config");
-    print_hexdump(reinterpret_cast<const uint8_t *>(&g_embedded_config),
-                  sizeof(g_embedded_config));
-    return;
-  }
 
-  std::vector<char> data(g_embedded_config.data_size);
-  char *p_embedded_config_data = reinterpret_cast<char *>(&g_embedded_config) +
-                                 g_embedded_config.data_offset;
-  std::memcpy(data.data(), p_embedded_config_data, g_embedded_config.data_size);
-
-  if (g_embedded_config.data_xz) {
-    lzma_stream strm = LZMA_STREAM_INIT;
-
-    lzma_ret ret = lzma_stream_decoder(&strm, UINT64_MAX, LZMA_CONCATENATED);
-    if (ret != LZMA_OK) {
-      logger::println("Failed to initialize LZMA decoder: {}",
-                      rfl::enum_to_string(ret));
-      lzma_end(&strm);
-      return;
-    }
-
-    strm.next_in = reinterpret_cast<const uint8_t *>(data.data());
-    strm.avail_in = data.size();
-
-    std::vector<char> decompressed_data{};
-    constexpr size_t chunk_size = 64 * 1024;
-    constexpr size_t max_size = 300 * 1024 * 1024;
-
-    while (true) {
-      std::vector<char> chunk(chunk_size);
-      strm.next_out = reinterpret_cast<uint8_t *>(chunk.data());
-      strm.avail_out = chunk.size();
-
-      ret = lzma_code(&strm, LZMA_FINISH);
-
-      size_t decompressed_chunk_size = chunk.size() - strm.avail_out;
-      if (decompressed_data.size() + decompressed_chunk_size > max_size) {
-        logger::println("Decompressed data too large (> {} MB)",
-                        max_size / (1024 * 1024));
-        lzma_end(&strm);
-        return;
-      }
-
-      decompressed_data.insert(decompressed_data.end(), chunk.begin(),
-                               chunk.begin() + decompressed_chunk_size);
-
-      if (ret == LZMA_STREAM_END || strm.avail_in == 0) {
-        break;
-      } else if (ret != LZMA_OK) {
-        logger::println("LZMA decompression failed: {}",
-                        rfl::enum_to_string(ret));
-        lzma_end(&strm);
-        return;
-      }
-    }
-
-    lzma_end(&strm);
-    data = std::move(decompressed_data);
-  }
-
-  auto json_str = std::string(data.data(), data.size());
   // logger::println("Embedded config offset: {}, size: {}, JSON: {}",
   //                 g_embedded_config.data_offset, g_embedded_config.data_size,
   //                 json_str);
   try {
     std::thread([=]() {
       GumJSHookManager *gumjs_hook_manager;
-      if (auto res = rfl::json::read<EmbeddedConfigData>(json_str)) {
-        gumjs_hook_manager = new GumJSHookManager();
-        auto config = res.value();
-        std::string js_content;
-        if (config.mode == EmbeddedConfigData::Mode::EmbedJs) {
-          if (config.js_content) {
-            js_content = *config.js_content;
-            gumjs_hook_manager->start_js_thread(js_content);
-          } else {
-            logger::println("No JS content or filepath provided");
-            return;
-          }
+      auto config = fripack::config::configData();
+
+      gumjs_hook_manager = new GumJSHookManager();
+      std::string js_content;
+      if (config.mode == config::EmbeddedConfigData::Mode::EmbedJs) {
+        if (config.js_content) {
+          js_content = *config.js_content;
+          gumjs_hook_manager->start_js_thread(js_content);
         } else {
-          logger::println("Unsupported embedded config mode: {}",
-                          static_cast<int32_t>(config.mode));
+          logger::println("No JS content or filepath provided");
           return;
         }
       } else {
-        logger::println("Failed to parse embedded config data: {}",
-                        res.error().what());
-        logger::println("Embedded data hexdump:");
-        print_hexdump(reinterpret_cast<const uint8_t *>(data.data()),
-                      std::min(data.size(), static_cast<size_t>(100)));
+        logger::println("Unsupported embedded config mode: {}",
+                        static_cast<int32_t>(config.mode));
         return;
       }
     }).detach();
@@ -365,12 +186,13 @@ EXPORT extern "C" void _fi_main() {
     return;
   }
 }
-#pragma optimize("", on)
+} // namespace fripack
+
 #ifdef _WIN32
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
   switch (fdwReason) {
   case DLL_PROCESS_ATTACH:
-    _main();
+    fripack::_fi_main();
     break;
   case DLL_PROCESS_DETACH:
     break;
@@ -378,5 +200,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
   return TRUE;
 }
 #else
-__attribute__((constructor)) static void _library_main() { _fi_main(); }
+__attribute__((constructor)) static void _library_main() {
+  fripack::_fi_main();
+}
 #endif

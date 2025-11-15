@@ -1,0 +1,16 @@
+#pragma once
+#include <optional>
+#include <string>
+#include <cstdint>
+
+namespace fripack::config {
+struct EmbeddedConfigData {
+  enum class Mode : int32_t {
+    EmbedJs = 1,
+  } mode;
+  std::optional<std::string> js_filepath;
+  std::optional<std::string> js_content;
+};
+
+const EmbeddedConfigData &configData();
+} // namespace fripack::config

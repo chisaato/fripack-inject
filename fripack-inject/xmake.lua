@@ -7,12 +7,12 @@ if is_plat("windows") then
 end
 
 includes("./deps/frida-gumjs-devkit.lua")
-add_requires("fmt", "frida-gumjs-devkit", "xz", "reflect-cpp")
+add_requires("fmt", "frida-gumjs-devkit", "xz", "reflect-cpp", "shadowhook v1.0.10")
 
 target("fripack-inject")
     set_kind("shared")
     add_files("src/**.cc")
-    add_packages("fmt", "frida-gumjs-devkit", "xz", "reflect-cpp")
+    add_packages("fmt", "frida-gumjs-devkit", "xz", "reflect-cpp", "shadowhook")
     set_strip("all")
     set_symbols("hidden")
     set_optimize("smallest")
