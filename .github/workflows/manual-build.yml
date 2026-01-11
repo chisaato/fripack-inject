@@ -1,0 +1,353 @@
+name: fripack-inject
+
+on:
+  workflow_dispatch:
+    inputs:
+      frida_version:
+        description: 'Frida 版本号 (例如: 16.2.1，不要带 v)'
+        required: true
+        default: '16.5.6'
+
+jobs: 
+  create_release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: softprops/action-gh-release@v2
+        id: createRelease
+        name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "${{ github.event.inputs.frida_version }}"
+          name: "${{ github.event.inputs.frida_version }}"
+          prerelease: false
+
+  build-linux-android:
+    runs-on: ubuntu-22.04
+    needs: [create_release]
+    strategy:
+      matrix:
+        include:
+          - platform: android
+            arch: android-arm
+            setup_ndk: true
+            xmake_arch: armeabi-v7a
+          - platform: android
+            arch: android-arm64
+            setup_ndk: true
+            xmake_arch: arm64-v8a
+          - platform: android
+            arch: android-x86
+            setup_ndk: true
+            xmake_arch: x86
+          - platform: android
+            arch: android-x86_64
+            setup_ndk: true
+            xmake_arch: x86_64
+          - platform: linux
+            arch: linux-x86_64
+            setup_ndk: false
+            xmake_arch: x86_64
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: "temurin"
+        java-version: "17"
+
+    - name: Setup Android NDK
+      id: setup-ndk
+      if: matrix.setup_ndk
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25c
+        local-cache: false
+        link-to-sdk: true
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+
+    - name: install dependencies
+      run: |
+        sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install build-essential tree ninja-build gcc-multilib g++-multilib lib32stdc++-9-dev flex bison ruby ruby-dev python3-requests python3-setuptools python3-dev python3-pip libc6-dev libc6-dev-i386 -y
+        sudo gem install fpm -v 1.11.0 --no-document
+        python3 -m pip install lief graphlib
+
+    - name: Set Android NDK environment
+      if: matrix.setup_ndk
+      run: |
+        echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
+        echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}"
+
+    - name: build frida for ${{ matrix.arch }}
+      shell: bash
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
+        git clone --recurse-submodules https://github.com/frida/frida
+        cd frida
+        # 切换到指定的版本
+        git checkout ${{ github.event.inputs.frida_version }} || echo "Version ${{ github.event.inputs.frida_version }} not found, using main"
+        
+        for path in ../patches/*
+        do
+          name=$(basename $path)
+          real=$(realpath $path)
+          echo "Apply patches in $real to frida/subprojects/$name"
+          cd subprojects/$name
+          git am ../../../patches/$name/*.patch
+          cd ../..
+        done
+        cd ..
+        
+        mkdir build-${{ matrix.arch }}
+        cd build-${{ matrix.arch }}
+        ../frida/configure --prefix=./installdir --host=${{ matrix.arch }} -- -Dfrida-gum:devkits=gum,gumjs -Dfrida-gum:v8=disabled -Dfrida-gum:database=disabled -Dfrida-gum:tests=disabled -Dfrida-core:compiler_backend=enabled -Dfrida-core:devkits=core
+        make
+        cd ..
+    
+    - name: Split Repository Name
+      id: split_name
+      run: |
+        repo_name=${{ github.repository }}
+        IFS='/' read -ra repo_parts <<< "$repo_name"
+        echo "owner=${repo_parts[0]}" >> $GITHUB_OUTPUT
+        echo "repo=${repo_parts[1]}" >> $GITHUB_OUTPUT
+
+    - name: Get release info
+      id: getReleaseInfo
+      uses: actions/github-script@v3
+      with:
+        github-token: ${{secrets.GITHUB_TOKEN}}
+        script: |
+          try {
+            const releaseVersion = '${{ github.event.inputs.frida_version }}'
+            const releaseResponse = await github.repos.getReleaseByTag({
+              owner: '${{ steps.split_name.outputs.owner }}',
+              repo: '${{ steps.split_name.outputs.repo }}',
+              tag: releaseVersion
+            })
+            const {
+              data: { id: releaseId, html_url: htmlUrl, upload_url: uploadUrl }
+            } = releaseResponse;
+            core.setOutput('id', releaseId);
+            core.setOutput('html_url', htmlUrl);
+            core.setOutput('upload_url', uploadUrl);
+          } catch (e) {
+            core.setFailed(e.message);
+          }
+
+    - name: Package and compress gumjs folder for ${{ matrix.arch }}
+      shell: bash
+      run: |
+        cp build-${{ matrix.arch }}/subprojects/frida-gum/gum/gumenumtypes.h build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/gumenumtypes.h
+        cd build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit
+        zip -9 -r ./gumjs-${{ matrix.arch }}.zip . && cd -
+
+    - name: Upload gumjs for ${{ matrix.arch }}
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.getReleaseInfo.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/gumjs-${{ matrix.arch }}.zip'
+        asset_name: 'gumjs-devkit-${{ github.event.inputs.frida_version }}-${{ matrix.arch }}.zip'
+        asset_content_type: application/zip
+
+    - uses: xmake-io/github-action-setup-xmake@v1
+      with:
+        xmake-version: 3.0.4
+        package-cache: false
+
+    - name: Build xmake fripack-inject for ${{ matrix.arch }}
+      run: |
+        mkdir -p ./fripack-inject/frida-gumjs-devkit/
+        cp ./build-${{ matrix.arch }}/subprojects/frida-gum/bindings/gumjs/devkit/* ./fripack-inject/frida-gumjs-devkit/
+        cd ./fripack-inject
+        use_ndk="${{ matrix.setup_ndk }}"
+        if [ "$use_ndk" = "true" ]; then
+          xmake f -a ${{ matrix.xmake_arch }} -y -p android -v
+        else
+          xmake f -a ${{ matrix.xmake_arch }} -y -p linux -v
+        fi
+        xmake -vD -y
+        xmake l os.cp build/**.so ./
+    - name: Upload fripack-inject for ${{ matrix.arch }}
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.getReleaseInfo.outputs.upload_url }}'
+        asset_path: ./fripack-inject/libfripack-inject.so
+        asset_name: 'fripack-inject-${{ github.event.inputs.frida_version }}-${{ matrix.arch }}.so'
+        asset_content_type: application/octet-stream
+
+  build-windows-frida:
+    needs: [create_release]
+    strategy:
+      matrix:
+        include:
+          - sys: MINGW32
+            pkg: mingw-w64-i686-gcc
+            arch: x86
+            xmake_arch: x86
+          - sys: MINGW64
+            pkg: mingw-w64-x86_64-gcc
+            arch: x86_64
+            xmake_arch: x64
+    runs-on: windows-2022
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.xmake_arch }}
+      - name: Install setuptools
+        run: pip install setuptools
+        shell: pwsh
+      - name: Install MinGW toolchain for cgo support
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.sys }}
+          install: ${{ matrix.pkg }}
+      - name: build frida for ${{ matrix.arch }}
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git clone --recurse-submodules https://github.com/frida/frida
+          cd frida
+          git checkout ${{ github.event.inputs.frida_version }}
+          
+          if ("${{ matrix.arch }}" -eq "x86") {
+            python releng\deps.py roll sdk windows-${{ matrix.arch }} --activate
+          }
+          python tools/ensure-submodules.py frida-core
+          
+          ./configure --host=windows-${{ matrix.arch }} -- "-Dfrida-gum:devkits=gum,gumjs" "-Dfrida-gum:v8=disabled" "-Dfrida-gum:database=disabled" "-Dfrida-gum:tests=disabled" "-Dfrida-core:compiler_backend=enabled" "-Dfrida-core:devkits=core"
+          ./make
+          
+          copy .\build\subprojects\frida-gum\gum\gumenumtypes.h .\build\subprojects\frida-gum\bindings\gumjs\devkit
+      - name: Get release info
+        id: getReleaseInfo
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            try {
+              const releaseVersion = '${{ github.event.inputs.frida_version }}'
+              const repoName = "${{ github.repository }}";
+              const releaseResponse = await github.repos.getReleaseByTag({
+                owner: repoName.split("/")[0],
+                repo: repoName.split("/")[1],
+                tag: releaseVersion
+              })
+              const {
+                data: { id: releaseId, html_url: htmlUrl, upload_url: uploadUrl }
+              } = releaseResponse;
+              core.setOutput('id', releaseId);
+              core.setOutput('html_url', htmlUrl);
+              core.setOutput('upload_url', uploadUrl);
+            } catch (e) {
+              core.setFailed(e.message);
+            }
+      - name: Package and compress gumjs-devkit folder for ${{ matrix.arch }}
+        run: |
+          Compress-Archive -Path .\frida\build\subprojects\frida-gum\bindings\gumjs\devkit\ -DestinationPath .\devkit.zip -CompressionLevel Optimal
+          
+      - name: Create Release Asset
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: '${{ steps.getReleaseInfo.outputs.upload_url }}'
+          asset_path: './devkit.zip'
+          asset_name: 'gumjs-devkit-${{ github.event.inputs.frida_version }}-windows-${{ matrix.arch }}.zip'
+          asset_content_type: application/zip
+
+      - name: Upload frida build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-devkit-windows-${{ matrix.arch }}
+          path: ./frida/build/subprojects/frida-gum/bindings/gumjs/devkit/
+          retention-days: 1
+
+  build-windows-xmake:
+    needs: [create_release, build-windows-frida]
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            xmake_arch: x64
+      fail-fast: false
+    runs-on: windows-2022
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download frida devkit artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frida-devkit-windows-${{ matrix.arch }}
+          path: ./fripack-inject/frida-gumjs-devkit/
+      - name: Get release info
+        id: getReleaseInfo
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            try {
+              const releaseVersion = '${{ github.event.inputs.frida_version }}'
+              const repoName = "${{ github.repository }}";
+              const releaseResponse = await github.repos.getReleaseByTag({
+                owner: repoName.split("/")[0],
+                repo: repoName.split("/")[1],
+                tag: releaseVersion
+              })
+              const {
+                data: { id: releaseId, html_url: htmlUrl, upload_url: uploadUrl }
+              } = releaseResponse;
+              core.setOutput('id', releaseId);
+              core.setOutput('html_url', htmlUrl);
+              core.setOutput('upload_url', uploadUrl);
+            } catch (e) {
+              core.setFailed(e.message);
+            }
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: 3.0.4
+          package-cache: false
+
+      - name: Build xmake fripack-inject for ${{ matrix.arch }}
+        run: |
+          cd ./fripack-inject
+          xmake f --plat=windows -a ${{ matrix.xmake_arch }} -y -v --toolchain=clang-cl
+          xmake b -vD -y
+          xmake l os.cp build/**.dll ./
+      - name: Upload fripack-inject for ${{ matrix.arch }}
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: '${{ steps.getReleaseInfo.outputs.upload_url }}'
+          asset_path: ${{ github.workspace }}/fripack-inject/fripack-inject.dll
+          asset_name: 'fripack-inject-${{ github.event.inputs.frida_version }}-windows-${{ matrix.arch }}.dll'
+          asset_content_type: application/octet-stream
