@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       frida_version:
-        description: "Frida 版本号 (例如: 16.2.1，不要带 v)"
+        description: "Frida 版本号 (例如: 17.5.2，不要带 v)"
         required: true
-        default: "16.5.6"
+        default: "17.5.2"
 
 jobs:
   create_release:
@@ -28,18 +28,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: android
-            arch: android-arm
-            setup_ndk: true
-            xmake_arch: armeabi-v7a
+          # - platform: android
+          #   arch: android-arm
+          #   setup_ndk: true
+          #   xmake_arch: armeabi-v7a
           - platform: android
             arch: android-arm64
             setup_ndk: true
             xmake_arch: arm64-v8a
-          - platform: android
-            arch: android-x86
-            setup_ndk: true
-            xmake_arch: x86
+          # - platform: android
+          #   arch: android-x86
+          #   setup_ndk: true
+          #   xmake_arch: x86
           - platform: android
             arch: android-x86_64
             setup_ndk: true
@@ -197,10 +197,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - sys: MINGW32
-            pkg: mingw-w64-i686-gcc
-            arch: x86
-            xmake_arch: x86
+          # - sys: MINGW32
+          #   pkg: mingw-w64-i686-gcc
+          #   arch: x86
+          #   xmake_arch: x86
           - sys: MINGW64
             pkg: mingw-w64-x86_64-gcc
             arch: x86_64
