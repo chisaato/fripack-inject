@@ -142,7 +142,7 @@ jobs:
       if: matrix.setup_ndk
       uses: nttld/setup-ndk@v1
       with:
-        ndk-version: r25c
+        ndk-version: r29
         local-cache: false
         link-to-sdk: true
 
@@ -156,6 +156,12 @@ jobs:
         sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install build-essential tree ninja-build gcc-multilib g++-multilib lib32stdc++-9-dev flex bison ruby ruby-dev python3-requests python3-setuptools python3-dev python3-pip libc6-dev libc6-dev-i386 -y
         sudo gem install fpm -v 1.11.0 --no-document
         python3 -m pip install lief graphlib
+
+    - name: Install Zig
+      if: matrix.platform == 'linux'
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.13.0
 
     - name: Set Android NDK environment
       if: matrix.setup_ndk
@@ -177,7 +183,14 @@ jobs:
           real=$(realpath $path)
           echo "Apply patches in $real to frida/subprojects/$name"
           cd subprojects/$name
-          git am ../../../patches/$name/*.patch
+          for file in $(ls ../../../patches/$name/ | sort); do
+            fullpath="../../../patches/$name/$file"
+            if [[ "$file" == *.patch ]]; then
+              git am "$fullpath"
+            elif [[ "$file" == *.js ]]; then
+              node "$fullpath"
+            fi
+          done
           cd ../..
           echo $i
         done
@@ -252,7 +265,7 @@ jobs:
         if [ "$use_ndk" = "true" ]; then
           xmake f -a ${{ matrix.xmake_arch }} -y -p android -v
         else
-          xmake f -a ${{ matrix.xmake_arch }} -y -p linux -v
+          xmake f -a ${{ matrix.xmake_arch }} -y -p linux --toolchain=zig -v
         fi
         xmake -vD -y
         xmake l os.cp build/**.so ./
